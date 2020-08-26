@@ -1,0 +1,223 @@
+---
+title: "Estudio sobre infectados de coronavirus"
+author: "Ricardo Alberich, Juan Gabriel Gomila y Arnau Mir"
+date: ''
+output: html_document
+  
+---
+<script src="https://kit.fontawesome.com/a0edb659c7.js" crossorigin="anonymous"></script>
+
+```{r setup, include=FALSE}
+library(reticulate)
+library(knitr)
+library(tidyverse) # %>%
+library(magrittr)
+library(kableExtra)
+library(lubridate)
+#library(rna)
+library(rnaturalearth)
+library(plotly)
+library(xts)
+library(dygraphs)
+library(car)
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+
+# Planteamiento y modelado del problema
+
+## Introducción
+
+En estos días está como noticia estrella la pandemía por **coronavirus** que estamos sufriendo prácticamente todos los humanos que habitan nuestro planeta.
+
+Una de las cuestiones más planteadas es cómo irán evolucionando los infectados, es decir, si a partir de los datos que se tienen, podemos predecir si habrá un rebrote o no.
+
+La respuesta a esta última pregunta hace que los políticos tomen medidas de confinamiento para evitar el posible rebrote.
+
+En esta presentación, a partir de uno de los **modelos matemáticos** para predecir el comportamiento de **epidemias**, vamos a estudiar cómo habría **evolucionado** la epidemia en diferentes países.
+
+## El modelo SIR
+
+El modelo SIR (**S** de susceptibles de contraer la enfermedad, **I** de infectados y **R** de recuperados), define en un tiempo fijado $t$, las variables siguientes:
+
+* $S(t)$ número de susceptibles de contraer la enfermedad.
+* $I(t)$ número de infectados.
+* $R(t)$ número de recuperados.
+
+El modelo **SIR** de define los parámetros siguientes:
+
+* $\beta$: el número medio de contactos por unidad de tiempo.
+* $\gamma$: el número de recuperados por unidad de tiempo dividido por el total de infectados.
+
+## El modelo SIR
+De esta manera, la tasa de transición entre los infectados y los susceptibles 
+será: $\beta\cdot \frac{I(t)}{N}$, es decir, el número medio de contactos por unidad de tiempo por la probabilidad de ser infectado.
+
+La tasa de transición entre los infectados y los recuperados será simplemente, $\gamma$.
+
+## El modelo SIR
+```{r,echo=FALSE,fig.height=7}
+plot(c(0, 30), c(0, 10), type = "n",xlab="",ylab="",axes = FALSE)
+recttext <- function(xl, yb, xr, yt, text, rectArgs = NULL, textArgs = NULL) {
+  center <- c(mean(c(xl, xr)), mean(c(yb, yt)))
+  do.call('rect', c(list(xleft = xl, ybottom = yb, xright = xr, ytop = yt), rectArgs))
+  do.call('text', c(list(x = center[1], y = center[2], labels = text), textArgs))
+}
+recttext(0, 5,8, 8, 'Susceptibles',
+         rectArgs = list(col = 'yellow'),
+         textArgs = list(col = 'black', cex = 1.5))
+recttext(11, 5,19, 8, 'Infectados',
+         rectArgs = list(col = 'red'),
+         textArgs = list(col = 'black', cex = 1.5))
+recttext(22, 5,30, 8, 'Recuperados',
+         rectArgs = list(col = 'green'),
+         textArgs = list(col = 'black', cex = 1.5))
+arrows(8,6.5,11,6.5,length=0.1)
+arrows(19,6.5,22,6.5,length=0.1)
+text(9.5,7,expression(beta*I/N))
+text(20.5,7,expression(gamma))
+```
+
+## El modelo SIR
+Las ecuaciones diferenciales del modelo son las siguientes:
+$$
+\begin{array}{rl}
+\frac{dS}{dt} & = -\frac{\beta I}{N}\cdot S,\\
+\frac{dI}{dt} & = \frac{\beta I}{N}\cdot S-\gamma I,\\
+\frac{dR}{dt} & = \gamma I
+\end{array}
+$$
+
+## El modelo SIR
+
+Es decir, 
+
+* la variación de susceptibles por unidad de tiempo sería la tasa de transición  desde susceptibles hacia infectados por el número total de susceptibles con un signo menos indicando que los susceptibles disminuirán si la tasa hacia infectados aumenta,
+
+* la variación de infectados por unidad de tiempo sería la tasa de transición desde susceptibles hacia infectados por el número total de susceptibles restándole la variación de recuperados que será la tasa de transición desde infectados a recuperados por el número total de infectados y,
+
+* la variación de recuperados por unidad de tiempo sería simplemente la tasa de transición desde infectados a recuperados por el número total de infectados.
+
+
+## El modelo SIR
+
+El sistema diferencial anterior es no lineal. Sin embargo, se puede verificar que $S(t)+I(t)+R(t)=N$, donde $N$ es la población total ya que $\frac{dS}{dt}+\frac{dI}{dt}+\frac{dR}{dt}=0$.
+
+Por tanto, la funció $R(t)$ de recuperados puede escribirse en función de las otras dos funciones $R(t)=N-S(t)-I(t)$ y el sistema diferencial anterior puede considerarse un sistema de 2 ecuaciones ya que la tercera función $R(t)$ puede escribirse en función de las otras dos.
+
+## El modelo SIR
+Además, la solución $S(t)$ puede obtenerse dividiendo la primera entre la última ecuación y integrando separando las variable $S$ y $R$:
+$$
+S(t)=S(0)\cdot \mathrm{e}^{-\frac{\beta}{\gamma}(R(t)-R(0))/N}.
+$$
+Al valor $\frac{\beta}{\gamma}$ se le llama **número básico de reproducción** y se denota por $R_0$.
+
+## El modelo SIR
+Este número juega un papel clave para estudiar la evolución de los infectados ya que: 
+$$
+\frac{dI}{dt}  = \frac{\beta I}{N}\cdot S-\gamma I =\left(R_0\frac{S}{N}-1\right)\cdot\gamma I.
+$$
+Entonces:
+
+* si $R_0\frac{S}{N}-1 >0$ o si $R_0 >\frac{N}{S}$, significa que $\frac{dI}{dt}>0$ y la función $I(t)$ crecerá aumentando el número de infectados.
+
+## El modelo SIR
+Como conocemos la expresión de $S(t)$, la condición anterior será:
+$$
+R_0 > \frac{N}{S(t)}=\frac{N}{S(0)}\cdot\mathrm{e}^{R_0\cdot (R(t)-R(0))/N}.
+$$
+La condición anterior es la que nos dirá si los infectados van a aumentar o por el contrario disminuir. 
+
+Los valores de $S(0)$ y $R(0)$ son, respectivamente, $S(0)=N$ y $R(0)=0$ ya que en el momento inicial todos los individuos son susceptibles y no hay ningún individuo recuperado.
+
+## El modelo SIR
+Es decir, 
+
+* si $R_0 > \mathrm{e}^{\frac{R_0\cdot R(t)}{N}}$ en el momento $t$, la epidemia tenderá a aumentar y se tendrán que tomar medidas y
+* si $R_0 < \mathrm{e}^{\frac{R_0\cdot R(t)}{N}}$ en el momento $t$, la epidemia tenderá a disminuir.
+
+
+## Estimación de $R_0$
+Para estimar el valor de $R_0$, tenemos que pensar que dispondremos de una tabla de datos que para unos ciertos tiempos $t_1,\ldots, t_n$, nos darán $S(t_i),I(t_i)$ y $R(t_i)$.
+
+Para estimar el valor de $R_0$ veamos en primer lugar cómo aparece en la expresión de $S(t)$:
+$$
+\begin{array}{rl}
+S(t) & = N\cdot \mathrm{e}^{-R_0\cdot \frac{R(t)}{N}}, \\
+\ln\left(\frac{S(t)}{N}\right) & = -R_0 \cdot \frac{R(t)}{N},\\
+N\ln S(t) & = N\ln N-R_0 \cdot R(t).
+\end{array}
+$$
+
+## Estimación de $R_0$
+Vemos que hay una **relación lineal** entre las variables $Y=N\ln S(t)$ y $X=R(t)$.
+Si hacemos la recta de regresión de la variable $Y_i=N\ln S(t_i)$, $i=1,\ldots,n$ en función de la variable $X_i=R(t_i)$, el valor de $R_0$ será la pendiente cambiada de signo de dicha recta.
+
+Una vez hallado el valor de $R_0$ a partir de dicha recta de regresión y observando el valor del coeficiente de determinación $R^2$ para testear la calidad de la regresión, podemos comparar el valor de la estimación de $R_0$ con $\mathrm{e}^{\frac{R_0\cdot R(t)}{N}}$ para un $t$ determinado para ver si la infección se expandirá o disminuirá.
+
+## Estudio en R
+```{r}
+covid19=read.csv("covid_19_clean_complete.csv")
+covid19$Date %<>% ymd()
+str(covid19)
+```
+## Número de habitantes por países
+
+```{r}
+library(wbstats)
+pop_data <- wb(indicator = "SP.POP.TOTL", startdate = 2018, enddate = 2019)
+```
+
+## Número de habitantes por países
+Veamos a modo de ejemplo el número de habitantes de España, Italia y Francia:
+```{r}
+pop_data[pop_data$country=="Spain",]
+pop_data[pop_data$country=="Italy",]
+pop_data[pop_data$country=="Chile",]
+```
+```{r}
+covid19.chile = covid19[covid19$Country.Region=="Chile",]
+length(covid19.chile$Confirmed)
+length(covid19.chile$Date)
+class(covid19.chile)
+
+infectados.por.dia<-aggregate(covid19.chile$Confirmed ~ covid19.chile$Date, FUN = sum)
+fallecidos.por.dia = aggregate(covid19.chile$Deaths ~ covid19.chile$Date,FUN=sum)
+infectados.por.dia2 = infectados.por.dia[,2] + fallecidos.por.dia[,2]
+recuperados.por.dia = aggregate(covid19.chile$Recovered ~ covid19.chile$Date,FUN=sum)
+```
+## Estudio para Chile
+Los susceptibles $S(t)$ se calculan como $S(t)=N-I(t)-R(t)$:
+```{r}
+habitantes=pop_data$value[pop_data$country=="Chile"]
+susceptibles.por.dia = habitantes-infectados.por.dia2-recuperados.por.dia[,2]
+```
+Por último creamos la tabla `tabla.España` con toda la información:
+```{r}
+tabla.chile = data.frame(unique(covid19.chile$Date),susceptibles.por.dia,
+                          infectados.por.dia2,recuperados.por.dia[,2])
+names(tabla.chile) = c("Fecha", "Susceptibles","Infectados", "Recuperados")
+```
+
+```{r}
+x=tabla.chile$Recuperados
+y=habitantes*log(tabla.chile$Susceptibles)
+summary(lm( y ~ x))
+```
+
+```{r}
+x=tabla.chile$Recuperados
+y=habitantes*log(tabla.chile$Susceptibles)
+summary(lm( y ~ x))
+```
+
+```{r}
+(estimación.R0 = -summary(lm(y~x))$coefficients[2])
+```
+
+Para ver si la epidemia se expandirá o no, hemos de comparar el valor anterior con: $\mathrm{e}^{R_0\cdot\frac{R(t)}{N}}$:
+```{r}
+dia.último = length(tabla.chile[,1])
+exp(estimación.R0*tabla.chile$Recuperados[dia.último]/habitantes)
+```

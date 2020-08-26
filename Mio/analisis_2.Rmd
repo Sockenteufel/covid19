@@ -1,0 +1,382 @@
+---
+title: "Covid Analsis"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#install.packages("openssl")
+#install.packages("httr")
+#install.packages("rvest")
+#nstall.packages("tidyverse")
+#install.packages("dplyr") 
+#install.packages("kableExtra")
+#install.packages("rnaturalearth")
+#install.packages("units")
+#install.packages("sf")
+#install.packages("plotly")
+#install.packages("xts")
+#install.packages("dygraphs")
+#install.packages("car")
+library(reticulate)
+library(knitr)
+library(tidyverse) # %>%
+library(magrittr)
+library(kableExtra)
+library(lubridate)
+#library(rna)
+library(rnaturalearth)
+library(plotly)
+library(xts)
+library(dygraphs)
+library(car)
+use_python("/home/gabriel/anaconda/")
+```
+
+# Carga y limpieza preliminar de los datos
+
+Los datos que se van a analizar en este documento, proceden de la compilación hecha por usuarios de [Kaggle](https://www.kaggle.com/imdevskp/corona-virus-report). La fecha del análisis empieza el 6 de Abril de 2020, utilizando la versión número 73 recopilada en la web anterior.
+
+```{r}
+datos <- read.csv("covid_19_clean_complete.csv")
+View(datos)
+datos %>% head(10) %>% kable() %>% kable_styling()
+```
+
+## Estructura de los datos
+
+```{r}
+str(datos)
+colnames(datos) = c("Provincia_Estado",
+                    "Pais_Region",
+                    "Latitud", # N+ o S-
+                    "Longitud", # E+ o W-
+                    "Fecha",
+                    "Casos_Confirmados",
+                    "Casos_Muertos",
+                    "Casos_Recuperados",
+                    "Casos_Activos",
+                    "WHO_Region"
+                    )
+datos %>% head() %>% kable() %>% kable_styling()
+```
+
+* Cualitativas se convierten con `factor` o bien `as.factor`.
+* Ordinales se convierten con `ordered`.
+* Cuantitativos se convierten con `as.numeric`.
+
+```{r}
+datos$Provincia_Estado<- as.factor(datos$Provincia_Estado)
+datos$Pais_Region<- as.factor(datos$Pais_Region)
+datos$Fecha<-as.factor(datos$Fecha)
+
+```
+# Cambia de Caracteres o Factor a Fecha
+```{r}
+datos$Fecha %<>% as.Date(format="%Y-%m-%d")
+str(datos)
+```
+# Uso de lubridate
+```{r}
+#datos$Fecha %<>% mdy()
+```
+
+```{r}
+datos %<>%
+  mutate(Casos_Enfermos = Casos_Confirmados - Casos_Muertos - Casos_Recuperados)
+datos %>% filter(Casos_Confirmados > 100000) %>% head(10) %>% kable() %>% kable_styling()
+datos %>% filter(Casos_Enfermos <0) %>% kable() %>% kable_styling()
+datos %>% filter(Provincia_Estado == "Hainan" ) %>% kable() %>% kable_styling()
+datos %>% filter(Pais_Region == "Chile") %>% kable() %>% kable_styling()
+```
+
+# Analisis Geografico
+
+```{r}
+#datos_europa<-datos[datos$Latitud > 38 & datos$Longitud > -25 & datos$Longitud < 30 , ]
+#nrow(datos_europa)
+datos_europa = datos %>%
+  filter(Latitud > 38, between(Longitud, -25, 30))
+
+table (datos_europa$Pais_Region) %>%
+  as.data.frame() %>%
+  filter(Freq > 0) %>%
+  kable() %>%
+  kable_styling()
+
+datos_europa %>%
+  filter(Fecha == ymd("2020-03-15")) %>%
+  kable() %>%
+  kable_styling()
+```
+
+# Analisis Amercia Latina 
+
+```{r}
+datos_aml = datos %>%
+  filter(Latitud < 27 , between(Longitud, -121, -31))
+
+table (datos_aml$Pais_Region) %>%
+  as.data.frame() %>%
+  filter(Freq > 0) %>%
+  kable() %>%
+  kable_styling()
+
+datos_aml %>%
+  filter(Fecha == ymd("2020-03-3")) %>%
+  kable() %>%
+  kable_styling()
+```
+# Mapas
+
+```{r}
+world<-ne_countries(scale = "large", returnclass = "sf")
+ggplot(data = world) +
+  geom_sf(color = "red", fill = "green") +
+  xlab("Logitud") + ylab("Latitud")+
+  ggtitle("Mapa del mundo", subtitle = "COVID 19")
+```
+
+
+```{r}
+world<-ne_countries(scale = "large", returnclass = "sf")
+world2<-ne_countries(scale = "medium", returnclass = "sf")
+
+#datos$Pais_Region = factor(datos$Pais_Region, levels = c(levels(datos$Pais_Region), "United States of America"))
+
+
+#datos[datos$Pais_Region=="United States",]$Pais_Region ="United States of America"
+world %>%
+  inner_join(datos, by = c("name"= "Pais_Region")) %>%
+  filter(Fecha == dmy("10-06-2020")) %>%
+  ggplot() +
+  geom_sf(color = "black", aes(fill = Casos_Confirmados)) +
+  scale_fill_viridis_c(option = "plasma", trans ="sqrt")+
+  xlab("Logitud") + ylab("Latitud")+
+  ggtitle("Mapa del mundo", subtitle = "COVID 19")
+```
+
+```{r}
+datos %>%
+  filter(Fecha == dmy("20-4-2020")) %>%
+  ggplot(aes(Longitud, Latitud))+
+  geom_point(aes(size=log(Casos_Confirmados+1), colour=log(Casos_Muertos+1)))+
+  coord_fixed()+
+  theme(legend.position = "bottom") -> g
+
+
+ggplotly(g)
+
+
+```
+
+```{r}
+thr = 50000
+
+datos %>%
+  filter(Fecha == ymd("2020-07-27"), Casos_Confirmados > thr) %>%
+  mutate(Prop_Muertos = Casos_Muertos / Casos_Confirmados, Ranking = dense_rank(desc(Prop_Muertos))) %>%
+  arrange(Ranking) %>%
+  head(20) %>%
+  kable() %>%
+  kable_styling()
+```
+
+
+
+```{r}
+datos$lat_class = cut(datos$Latitud, breaks = nclass.scott(datos$Latitud))
+datos$long_class = cut(datos$Longitud, breaks = nclass.Sturges(datos$Longitud))
+
+tt = table(datos$lat_class, datos$long_class)
+tt = tt[nrow(tt):1,]
+mosaicplot(t(tt), shade = TRUE)
+
+```
+
+# Series Temporales
+
+```{r}
+datos_por_fecha<-aggregate(
+  cbind(Casos_Confirmados, Casos_Muertos, Casos_Recuperados) ~ Fecha,
+  data = datos,
+  FUN = sum)
+
+head(datos_por_fecha)
+tail(datos_por_fecha)
+
+barplot(Casos_Confirmados ~ Fecha, data=datos_por_fecha)
+
+plot(Casos_Confirmados ~ Fecha, data= datos_por_fecha, col ="blue", type ="l",
+     main="Casos Documentados", xlab="Fecha", ylab="Numeros de Personas", log="y" )
+lines(Casos_Muertos ~ Fecha, data=datos_por_fecha, col="red")
+lines(Casos_Recuperados ~ Fecha, data=datos_por_fecha, col="green" )
+legend("topleft", c("Confirmados", "Muertos", "Recuperados"), col=c("blue", "red", "green"), pch = 1, lwd = 2)
+
+```
+```{r}
+datos_por_fecha_ts<-xts(x=datos_por_fecha[,2:4], order.by = datos_por_fecha$Fecha)
+
+dygraph(datos_por_fecha_ts)%>%
+  dyOptions(labelsKMB = TRUE,
+      fillGraph = TRUE, fillAlpha = 0,05,
+      drawGrid = FALSE) %>%
+  dyRangeSelector() %>%
+  dyCrosshair(direction = "vertical")%>%
+  dyHighlight(highlightCircleSize = 5, highlightSeriesBackgroundAlpha = 0.2,hideOnMouseOut = FALSE) %>%
+  dyRoller(rollPeriod = 2)
+```
+
+```{r}
+datos_chile<-datos %>% 
+  filter(Pais_Region== "Chile") %>%
+  select(Fecha, starts_with("Casos_"))
+
+plot(x=datos_chile$Fecha, y=datos_chile$Casos_Confirmados, main="Casos Chile", type="s", col="blue", lwd=2)
+barplot(as.matrix(t(datos_chile[,3:5])), 
+        col = c("red", "green", "yellow"),
+        main="Casos Chile",
+        xlab="Fecha", ylab = "Personas")
+legend("topleft", c("Muertos", "Recuperados", "Enfermos"),
+       col=c("red", "green", "yellow"), lwd=2, pch = 1)
+
+
+```
+# Nuevos Casos
+```{r}
+datos_chile %<>%
+  mutate(Nuevos_Casos_Confirmados =Casos_Confirmados- lag(Casos_Confirmados, n=1),
+         Nuevos_Casos_Muerto = Casos_Muertos - lag(Casos_Muertos, n=1),
+         Nuevos_Casos_Recuperados = Casos_Recuperados - lag(Casos_Recuperados, n=1))
+
+datos_chile %>% kable() %>% kable_styling()
+plot(Nuevos_Casos_Confirmados ~ Fecha, data = datos_chile,
+     type = "l", col ="blue", 
+     xlab = "Fecha", ylab = "Nuevos casos", 
+     main = "Nuevos registros en Chile")
+lines(Nuevos_Casos_Muerto ~ Fecha, data = datos_chile,
+      type = "l", col = "red")
+lines(Nuevos_Casos_Recuperados ~ Fecha, data = datos_chile,
+      type = "l", col = "green")
+legend("topleft", c("Confirmados", "Muertos", "Recuperados"), 
+       col = c("blue", "red", "green"), 
+       lwd = 2, pch = 1)
+  
+```
+
+# Cohortes
+
+```{r}
+primer_contagio <- datos %>%
+  group_by(Pais_Region) %>%
+  filter(Casos_Confirmados > 0) %>%
+  summarise(Primero = min(Fecha)-1)
+
+data_first <- datos %>%
+  inner_join(primer_contagio, by="Pais_Region") %>%
+  mutate(Dias_Desde_PC = as.numeric(Fecha - Primero))%>%
+  filter(Dias_Desde_PC >=0)%>%
+  group_by(Dias_Desde_PC, Pais_Region)%>%
+  summarise(Casos_Confirmados = sum(Casos_Confirmados),
+            Casos_Muertos = sum(Casos_Muertos),
+            Casos_Recuperados = sum(Casos_Recuperados))
+```
+
+```{r}
+data_first %>%
+  filter(Pais_Region %in% c("Chile", "Peru", "Argentina", "China", "US")) %>%
+  ggplot(aes(x= Dias_Desde_PC, y = Casos_Confirmados)) +
+  geom_line(aes(col =Pais_Region)) +
+  xlab("Dias desde primer contagio")+
+  ylab("Personas")+
+  ggtitle("Analisis por Cohorte - Casos Confirmados")+
+  theme(legend.position = "none") -> h
+
+ggplotly(h)
+```
+
+```{r}
+data_first %>%
+  filter(Pais_Region %in% c("Chile", "Peru", "Argentina", "China", "US")) %>%
+  ggplot(aes(x= Dias_Desde_PC, y = Casos_Muertos)) +
+  geom_line(aes(col =Pais_Region)) +
+  xlab("Dias desde primer contagio")+
+  ylab("Personas")+
+  ggtitle("Analisis por Cohorte - Muertes")+
+  theme(legend.position = "none") -> g
+
+ggplotly(g)
+```
+
+# Modelos de Regresion
+
+```{r}
+datos_chile$Dias <- as.numeric(datos_chile$Fecha - dmy("22/01/2020"))
+```
+## Regresion Lineal   
+```{r}
+mod1<- lm(Casos_Confirmados ~ Dias, data = datos_chile)
+summary(mod1)
+```
+
+```{r}
+plot(datos_chile$Dias, datos_chile$Casos_Confirmados)
+abline(mod1, col ="red")
+# Residuo es el Error y los valores ajustados es la prediccion
+plot(mod1$residuals ~ mod1$fitted.values, xlab="Valores Ajustados", ylab = "Residuos")
+
+residuos <-mod1$residuals
+
+qqPlot(residuos, distribution = "norm", mean= mean(residuos), sd=sd(residuos))
+
+```
+## Regresion Exponencial
+
+```{r}
+mod2<-lm(log(Casos_Confirmados) ~ Dias, data= datos_chile[datos_chile$Casos_Confirmados>0, ])
+summary(mod2)
+
+plot(datos_chile$Dias, datos_chile$Casos_Confirmados)
+lines(exp(mod2$coefficients[1])*exp(mod2$coefficients[2]*datos_chile$Dias), col="blue")
+
+plot(mod2$residuals ~ mod2$fitted.values, xlab="Valores ajustados", ylab="Residuos")
+residuos2 <-mod2$residuals
+qqPlot(residuos2, distribution = "norm", mean = mean(residuos2), sd=sd(residuos2))
+```
+
+## Regresion Potencial
+```{r}
+mod3 <- lm(log(Casos_Confirmados) ~ log(Dias), data = datos_chile[datos_chile$Casos_Confirmados >0,] )
+summary(mod3)
+
+plot(datos_chile$Dias, datos_chile$Casos_Confirmados)
+lines(exp(mod3$coefficients[1])*datos_chile$Dias^mod3$coefficients[2], col="green")
+plot(mod3$residuals ~ mod3$fitted.values, xlab="Valores Ajustados", ylab="Residuos")
+
+residuos3<- mod3$residuals
+qqPlot(residuos3, distribution = "norm", mean=mean(residuos3), sd=sd(residuos3))
+
+```
+# Comaparacion de Modelos
+```{r}
+start_date = ymd('2020-01-22')
+end_date = ymd('2020-07-28')
+dates = seq(start_date+1, end_date, by = "1 day")
+days_since_start = as.numeric(dates - start_date)
+new_data = data.frame(Dias = days_since_start)
+pred1 = predict(mod1, newdata = new_data)
+pred2 = exp(predict(mod2, newdata = new_data))
+pred3 = exp(predict(mod3, newdata = new_data))
+#pred4 = exp(predict(mi_model, newdata = new_data))
+datos_por_fecha_3 <- xts(x = data.frame(Real = datos_chile$Casos_Confirmados, order.by = dates))
+class(dates)
+length(dates)
+length(datos_chile$Casos_Confirmados)
+datos_por_fecha_ts = xts(x = data.frame(Real = c(datos_chile$Casos_Confirmados),                               Mod_Pot = pred3),
+                         order.by = dates)
+dygraph(datos_por_fecha_ts)
+dygraph()
+
+```
+
+
